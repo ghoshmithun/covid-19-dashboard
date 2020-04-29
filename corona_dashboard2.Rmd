@@ -1,0 +1,113 @@
+---
+title: "Coronavirus DashBoard"
+author: "Mithun Ghosh"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    # social: ["facebook", "twitter", "linkedin"]
+    source_code: embed
+    vertical_layout: fill
+---
+
+Summary
+=======================================================================
+
+Column {.sidebar}
+-----------------------------------------------------------------------
+```{r}
+library(flexdashboard)
+library(dplyr)
+library(shiny)
+
+coronavirus <- read.csv(file="https://raw.githubusercontent.com/RamiKrispin/coronavirus-csv/master/coronavirus_dataset.csv",header=TRUE,sep=",")
+
+selectInput("Country", label = "Country Selected:",
+          choices = c("All", levels(coronavirus$Country.Region), selected = "All"))
+
+```
+
+```{r setup, include=FALSE}
+#------------------ Packages ------------------
+library(flexdashboard)
+
+`%>%` <- magrittr::`%>%`
+#------------------ Parameters ------------------
+# Set colors
+# https://www.w3.org/TR/css-color-3/#svg-color
+confirmed_color <- "purple"
+active_color <- "#1f77b4"
+recovered_color <- "forestgreen"
+death_color <- "red"
+#------------------ Data ------------------
+
+df <- coronavirus %>%
+  dplyr::group_by(Country.Region, type) %>%
+  dplyr::summarise(total = sum(cases)) %>%
+  tidyr::pivot_wider(
+    names_from = type,
+    values_from = total
+  ) %>%
+  # dplyr::mutate(unrecovered = confirmed - ifelse(is.na(recovered), 0, recovered) - ifelse(is.na(death), 0, death)) %>%
+  dplyr::mutate(unrecovered = confirmed - ifelse(is.na(death), 0, death)) %>%
+  dplyr::arrange(-confirmed) %>%
+  dplyr::ungroup() %>%
+  dplyr::mutate(country = dplyr::if_else(Country.Region == "United Arab Emirates", "UAE", as.character(Country.Region))) %>%
+  dplyr::mutate(country = dplyr::if_else(country == "Mainland China", "China", country)) %>%
+  dplyr::mutate(country = dplyr::if_else(country == "North Macedonia", "N.Macedonia", country)) %>%
+  dplyr::mutate(country = trimws(country)) %>%
+  dplyr::mutate(country = factor(country, levels = country))
+
+df_daily <- coronavirus %>%
+  dplyr::group_by(date, type) %>%
+  dplyr::summarise(total = sum(cases, na.rm = TRUE)) %>%
+  tidyr::pivot_wider(
+    names_from = type,
+    values_from = total
+  ) %>%
+  dplyr::arrange(date) %>%
+  dplyr::ungroup() %>%
+  #dplyr::mutate(active = confirmed - death - recovered) %>%
+  dplyr::mutate(active = confirmed - death) %>%
+  dplyr::mutate(
+    confirmed_cum = cumsum(confirmed),
+    death_cum = cumsum(death),
+    # recovered_cum = cumsum(recovered),
+    active_cum = cumsum(active)
+  )
+
+
+df1 <- coronavirus %>% dplyr::filter(date == max(as.character(date)))
+```
+
+Row {data-width=400}
+-----------------------------------------------------------------------
+
+### confirmed {.value-box}
+
+```{r}
+renderText({
+valueBox(
+  value = paste(format(df %>% filter(Country.Region==input$Country) %>% sum(confirmed), big.mark = ","), "", sep = " "),
+  caption = "Total confirmed cases",
+  icon = "fas fa-user-md",
+  color = confirmed_color
+)})
+```
+
+
+
+### death {.value-box}
+
+```{r}
+renderText({
+valueBox(
+  value = paste(format(df %>% filter(Country.Region==input$Country) %>% sum(death, na.rm = TRUE), big.mark = ","), " (",
+    round(100 * sum(df$death, na.rm = TRUE) / sum(df$confirmed), 1),
+    "%)",
+    sep = ""
+  ),
+  caption = "Death cases (death rate)",
+  icon = "fas fa-heart-broken",
+  color = death_color
+)})
+```
